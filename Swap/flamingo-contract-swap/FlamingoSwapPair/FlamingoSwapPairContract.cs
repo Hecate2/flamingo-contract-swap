@@ -128,6 +128,331 @@ namespace FlamingoSwapPair
             }
         }
 
+        #region Option Pool
+
+        public static class OptionPool
+        {
+            private static readonly StorageContext currentContext = Storage.CurrentContext;
+            public const string rentalFeeAccumulatorMapName = "rentalFee";
+            public const string OptionPriceMapName = "optionPrice";
+            public const string OptionPriceAccumulationMapName = "optionPriceAccumulation";
+            public const string TenantPriceAccumulationMapName = "tenantPriceAccumulation";
+            public const string OptionPriceUpdateTimeMapName = "optionPriceUpdateTime";
+            public const string rentedToken0MapName = "rent0";
+            public const string totalRentedToken0MapName = "totalRent0";
+            public const string marginToken0MapName = "margin0";
+            public const string rentedToken1MapName = "rent1";
+            public const string totalRentedToken1MapName = "totalRent1";
+            public const string marginToken1MapName = "margin1";
+            public static BigInteger TenantRentedToken0(UInt160 tenant) => (BigInteger)new StorageMap(currentContext, rentedToken0MapName).Get(tenant);
+            public static BigInteger TotalRentedToken0() => (BigInteger)Storage.Get(currentContext, totalRentedToken0MapName);
+            private static void PutRentedToken0(UInt160 tenant, BigInteger value)
+            {
+                // update the total rented amount and the user's rented amount
+                Storage.Put(currentContext, rentedToken0MapName, TotalRentedToken0() + value - TenantRentedToken0(tenant));
+                if (value > 0)
+                    new StorageMap(currentContext, totalRentedToken0MapName).Put(tenant, value);
+                else
+                    new StorageMap(currentContext, totalRentedToken0MapName).Delete(tenant);
+            }
+            public static BigInteger TenantRentedToken1(UInt160 tenant) => (BigInteger)new StorageMap(currentContext, rentedToken1MapName).Get(tenant);
+            public static BigInteger TotalRentedToken1() => (BigInteger)Storage.Get(currentContext, totalRentedToken1MapName);
+            private static void PutRentedToken1(UInt160 tenant, BigInteger value)
+            {
+                // update the total rented amount and the user's rented amount
+                Storage.Put(currentContext, rentedToken1MapName, TotalRentedToken1() + value - TenantRentedToken1(tenant));
+                if (value > 0)
+                    new StorageMap(currentContext, totalRentedToken1MapName).Put(tenant, value);
+                else
+                    new StorageMap(currentContext, totalRentedToken0MapName).Delete(tenant);
+            }
+
+            public static BigInteger TenantRentedLiquidity(UInt160 tenant) => (TenantRentedToken0(tenant) * TenantRentedToken1(tenant)).Sqrt();
+            public static BigInteger TotalRentedLiquidity() => (TotalRentedToken0() * TotalRentedToken1()).Sqrt();
+
+            public static BigInteger UtilizationRate()
+            {
+                // theoretically the returned value should be between 0 and 1
+                // but we return 1000x theoretical value
+                // TODO: we are using all BigInteger here. Ensure accuracy with float-like computation using BigInteger
+                Iterator tenantRentedValue = Storage.Find(currentContext, rentedToken0MapName, FindOptions.RemovePrefix);
+                UInt160 tenant;
+                BigInteger tenantRentedValue0;
+                BigInteger tenantRentedValue1;
+                BigInteger sumLiquidity = 0;
+                while (tenantRentedValue.Next())
+                {
+                    object[] objectArray = (object[])tenantRentedValue.Value;
+                    tenant = (UInt160)objectArray[0];
+                    tenantRentedValue0 = (BigInteger)objectArray[1];
+                    tenantRentedValue1 = TenantRentedToken1(tenant);
+                    sumLiquidity += (tenantRentedValue0 * tenantRentedValue1 * 4294967296).Sqrt();  //4294967296 == 65536 ** 2
+                }
+                return sumLiquidity * 1000 / (65536 * TotalRentedLiquidity());
+            }
+
+            public static BigInteger OptionPrice(bool getUpperBound = false)
+            {
+                // GAS (1e8) cost per second
+                // TODO: design a good function
+                BigInteger utilizationRate;
+                if (getUpperBound)
+                    utilizationRate = 1000;
+                else
+                    utilizationRate = UtilizationRate();  // utilizationRate range: [0,1000]
+                return utilizationRate * utilizationRate * 100;
+            }
+
+            public static BigInteger[] RentalFeeAccumulator()
+            {
+                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, OptionPriceMapName);
+                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, OptionPriceAccumulationMapName);
+                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, OptionPriceUpdateTimeMapName);
+                BigInteger currentTime = Runtime.Time;
+                return new BigInteger[] {currentTime, previousOptionPriceAccumulation + previousOptionPrice * (currentTime - previousOptionPriceUpdatedTime) };
+            }
+
+            private static bool SettleTenantRentalFee(UInt160 tenant)
+            {
+                // This method is called when any tenant's rented amount of liquidity pool is going to be changed
+                // (or you can also call it at any time wasting GAS...)
+                // calculate how much rental fee the tenant should pay since the tenant's last settlement
+                // update tenantPriceAccumulationMap, deduce tenant's fee and return true if the tenant's margin is enough to pay the rental fee
+                // force liquidation and return false if the tenant's margin is not enough to pay the rental fee
+                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, OptionPriceMapName);
+                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, OptionPriceAccumulationMapName);
+                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, OptionPriceUpdateTimeMapName);
+                BigInteger currentTime = Runtime.Time;
+
+                BigInteger newPriceAccumulation = previousOptionPriceAccumulation + previousOptionPrice * (currentTime - previousOptionPriceUpdatedTime);
+
+                StorageMap tenantPriceAccumulationMap = new(currentContext, TenantPriceAccumulationMapName);
+                BigInteger tenantPreviousPriceAccumulation = (BigInteger)tenantPriceAccumulationMap.Get(tenant);
+                BigInteger tenantRentedLiquidity = TenantRentedLiquidity(tenant);
+                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * tenantRentedLiquidity;
+
+                BigInteger tenantMarginToken0 = TenantMarginToken0(tenant);
+                BigInteger tenantMarginToken1 = TenantMarginToken1(tenant);
+                BigInteger tenantTotalMargin = (tenantMarginToken0 * tenantMarginToken1).Sqrt();
+                if (tenantShouldPay + tenantRentedLiquidity < tenantTotalMargin)
+                {
+                    // normal payment
+                    tenantPriceAccumulationMap.Put(tenant, newPriceAccumulation);
+                    BigInteger newTenantTotalMargin = tenantTotalMargin - tenantShouldPay;
+                    PutTenantMarginToken0(tenant, tenantMarginToken0 * newTenantTotalMargin / tenantTotalMargin);
+                    PutTenantMarginToken1(tenant, tenantMarginToken1 * newTenantTotalMargin / tenantTotalMargin);
+                    return true;
+                }
+                else
+                {
+                    // force liquidation
+                    PutTenantMarginToken0(tenant, 0);
+                    PutTenantMarginToken1(tenant, 0);
+                    PutRentedToken0(tenant, 0);
+                    PutRentedToken1(tenant, 0);
+
+                    // Storage.Put(currentContext, OptionPriceMapName, OptionPrice());  // do this after changing tenant's rented value
+                    Storage.Put(currentContext, OptionPriceAccumulationMapName, newPriceAccumulation);
+                    Storage.Put(currentContext, OptionPriceUpdateTimeMapName, currentTime);
+
+                    SafeTransfer(Token0, Runtime.ExecutingScriptHash, tenant, tenantMarginToken0);
+                    SafeTransfer(Token1, Runtime.ExecutingScriptHash, tenant, tenantMarginToken1);
+                    return false;
+                }
+
+            }
+
+            public static BigInteger TenantMarginToken0(UInt160 tenant) => (BigInteger)new StorageMap(currentContext, marginToken0MapName).Get(tenant);
+            private static void PutTenantMarginToken0(UInt160 tenant, BigInteger value)
+            {
+                if(value > 0)
+                    new StorageMap(currentContext, marginToken0MapName).Put(tenant, value);
+                else
+                    new StorageMap(currentContext, marginToken0MapName).Delete(tenant);
+            }
+            public static BigInteger TenantMarginToken1(UInt160 tenant) => (BigInteger)new StorageMap(currentContext, marginToken1MapName).Get(tenant);
+            private static void PutTenantMarginToken1(UInt160 tenant, BigInteger value)
+            {
+                if (value <= 0)
+                    new StorageMap(currentContext, marginToken1MapName).Delete(tenant);
+                else
+                    new StorageMap(currentContext, marginToken1MapName).Put(tenant, value);
+            }
+            public static BigInteger TenantTotalMargin(UInt160 tenant) => (TenantMarginToken0(tenant)* TenantMarginToken1(tenant)).Sqrt();
+
+            public static BigInteger RentOptionPool(UInt160 tenant,
+                BigInteger rentToken0, BigInteger rentToken1,
+                BigInteger marginToken0, BigInteger marginToken1)
+            {
+                Assert(EnteredStorage.Get() == 0, "Re-entered");
+                EnteredStorage.Put(1);
+
+                //Assert(Runtime.CheckWitness(tenant), "No witness");  // not necessary. We will transfer token from tenant later
+
+                SettleTenantRentalFee(tenant);  // SafeTransfer to user inside. Be cautious of re-entrancy attack
+
+                var r = ReservePair;
+                var reserve0 = r.Reserve0;
+                var reserve1 = r.Reserve1;
+                BigInteger returnedValue;
+                if (rentToken0 > 0 && rentToken1 == 0)
+                {
+                    rentToken1 = rentToken0 * reserve1 / reserve0;
+                    returnedValue = rentToken1;
+                }
+                else if (rentToken1 > 0 && rentToken0 == 0)
+                {
+                    rentToken0 = rentToken1 * reserve0 / reserve1;
+                    returnedValue = rentToken0;
+                }
+                else return 0;
+                BigInteger willHaveMargin0 = TenantMarginToken0(tenant) + marginToken0;
+                BigInteger willHaveMargin1 = TenantMarginToken1(tenant) + marginToken1;
+                BigInteger willRentToken0 = TenantRentedToken0(tenant) + rentToken0;
+                BigInteger willRentToken1 = TenantRentedToken1(tenant) + rentToken1;
+
+                Assert(willHaveMargin0 * willHaveMargin1 > willRentToken0 * willRentToken1, "No enough margin");
+
+                SafeTransfer(Token0, tenant, Runtime.ExecutingScriptHash, marginToken0);
+                SafeTransfer(Token1, tenant, Runtime.ExecutingScriptHash, marginToken1);
+                PutTenantMarginToken0(tenant, willHaveMargin0);
+                PutTenantMarginToken1(tenant, willHaveMargin1);
+                PutRentedToken0(tenant, willRentToken0);
+                PutRentedToken1(tenant, willRentToken1);
+                Storage.Put(currentContext, OptionPriceMapName, OptionPrice());
+
+                EnteredStorage.Put(0);
+                return returnedValue;
+            }
+
+            public static void AddMargin(UInt160 tenant, BigInteger marginToken0, BigInteger marginToken1)
+            {
+                Assert(EnteredStorage.Get() == 0, "Re-entered");
+                EnteredStorage.Put(1);
+
+                //Assert(Runtime.CheckWitness(tenant), "No witness");  // not necessary. We will transfer token from tenant later
+
+                SafeTransfer(Token0, tenant, Runtime.ExecutingScriptHash, marginToken0);
+                SafeTransfer(Token1, tenant, Runtime.ExecutingScriptHash, marginToken1);
+                PutTenantMarginToken0(tenant, TenantMarginToken0(tenant) + marginToken0);
+                PutTenantMarginToken0(tenant, TenantMarginToken1(tenant) + marginToken1);
+
+                EnteredStorage.Put(0);
+            }
+            public static void WithdrawMargin(UInt160 tenant)
+            {
+                Assert(EnteredStorage.Get() == 0, "Re-entered");
+                EnteredStorage.Put(1);
+
+                if (SettleTenantRentalFee(tenant))
+                {
+                    Assert(Runtime.CheckWitness(tenant), "No witness");  // anyone can force another's liquidation
+                    BigInteger currentMargin0 = TenantMarginToken0(tenant);
+                    BigInteger currentMargin1 = TenantMarginToken1(tenant);
+                    PutTenantMarginToken0(tenant, 0);
+                    PutTenantMarginToken1(tenant, 0);
+                    PutRentedToken0(tenant, 0);
+                    PutRentedToken1(tenant, 0);
+                    SafeTransfer(Token0, Runtime.ExecutingScriptHash, tenant, currentMargin0);
+                    SafeTransfer(Token1, Runtime.ExecutingScriptHash, tenant, currentMargin1);
+                }
+                else
+                {
+                    // force liquidation executed. 
+                    // TODO: give the caller some rewards...
+                }
+
+                Storage.Put(currentContext, OptionPriceMapName, OptionPrice());
+
+                EnteredStorage.Put(0);
+            }
+
+            public static bool Swap(UInt160 tenant, BigInteger amount0Out, BigInteger amount1Out, UInt160 toAddress, byte[] data = null)
+            {
+                Assert(EnteredStorage.Get() == 0, "Re-entered");
+                EnteredStorage.Put(1);
+
+                if (!SettleTenantRentalFee(tenant)) return true;
+
+                Assert(toAddress.IsAddress(), "Invalid To-Address");
+                var caller = Runtime.CallingScriptHash;
+
+                var me = Runtime.ExecutingScriptHash;
+
+                Assert(amount0Out >= 0 && amount1Out >= 0, "Invalid AmountOut");
+                Assert(amount0Out > 0 || amount1Out > 0, "Invalid AmountOut");
+
+                var r = ReservePair;
+                var reserve0 = TenantRentedToken0(tenant);
+                var reserve1 = TenantRentedToken1(tenant);
+
+                //转出量小于持有量
+                Assert(amount0Out < reserve0 && amount1Out < reserve1, "Insufficient Liquidity");
+                //禁止转到token本身的地址
+                Assert(toAddress != Token0 && toAddress != Token1 && toAddress != me, "INVALID_TO");
+
+                if (amount0Out > 0)
+                {
+                    //从本合约转出目标token到目标地址
+                    SafeTransfer(Token0, me, toAddress, amount0Out, data);
+                }
+                if (amount1Out > 0)
+                {
+                    SafeTransfer(Token1, me, toAddress, amount1Out, data);
+                }
+
+
+                BigInteger balance0 = DynamicBalanceOf(Token0, me);
+                BigInteger balance1 = DynamicBalanceOf(Token1, me);
+                //计算转入的token量：转入转出后token余额balance>reserve，代表token转入，计算结果为正数
+                var amount0In = balance0 > (reserve0 - amount0Out) ? balance0 - (reserve0 - amount0Out) : 0;
+                var amount1In = balance1 > (reserve1 - amount1Out) ? balance1 - (reserve1 - amount1Out) : 0;
+                //swap 时至少有一个转入
+                Assert(amount0In > 0 || amount1In > 0, "Invalid AmountIn");
+
+                //amountIn 收取千分之三手续费
+                var balance0Adjusted = balance0 * 1000 - amount0In * 3;
+                var balance1Adjusted = balance1 * 1000 - amount1In * 3;
+
+                //恒定积
+                Assert(balance0Adjusted * balance1Adjusted >= reserve0 * reserve1 * 1_000_000, "K");
+
+                Update(balance0, balance1, r);
+
+                Swapped(caller, amount0In, amount1In, amount0Out, amount1Out, toAddress);
+                EnteredStorage.Put(0);
+                return true;
+            }
+
+            public static UInt160[] FindForcedLiquidation()
+            {
+                Iterator tenants = new StorageMap(currentContext, rentedToken0MapName).Find(FindOptions.RemovePrefix);
+                UInt160[] returnedTenants = new UInt160[500];
+                int i = 0;
+                while(tenants.Next() && i < 500)
+                {
+                    UInt160 tenant = (UInt160)((object[])tenants.Value)[0];
+                    if((BigInteger)((object[])tenants.Value)[1] * TenantRentedToken1(tenant) > TenantRentedToken0(tenant) * TenantRentedToken1(tenant))
+                        returnedTenants[i++] = tenant;
+                }
+                return returnedTenants;
+            }
+
+            public static void ForceLiquidation(UInt160 tenant)
+            {
+                BigInteger marginToken0 = TenantMarginToken0(tenant);
+                BigInteger marginToken1 = TenantMarginToken1(tenant);
+                if (TenantRentedToken0(tenant) * TenantRentedToken1(tenant) > marginToken0 * marginToken1)
+                {
+                    PutRentedToken0(tenant, 0);
+                    PutRentedToken1(tenant, 0);
+                    SafeTransfer(Token0, Runtime.ExecutingScriptHash, tenant, marginToken0);
+                    SafeTransfer(Token1, Runtime.ExecutingScriptHash, tenant, marginToken1);
+                }
+            }
+        }
+
+        #endregion
 
         #region Swap
 
@@ -156,7 +481,7 @@ namespace FlamingoSwapPair
             var reserve1 = r.Reserve1;
 
             //转出量小于持有量
-            Assert(amount0Out < reserve0 && amount1Out < reserve1, "Insufficient Liquidity");
+            Assert(amount0Out < reserve0 - OptionPool.TotalRentedToken0() && amount1Out < reserve1 - OptionPool.TotalRentedToken0(), "Insufficient Liquidity");
             //禁止转到token本身的地址
             Assert(toAddress != (UInt160)Token0 && toAddress != (UInt160)Token1 && toAddress != me, "INVALID_TO");
 
