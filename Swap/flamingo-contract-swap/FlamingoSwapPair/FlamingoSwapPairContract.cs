@@ -130,8 +130,6 @@ namespace FlamingoSwapPair
 
         #region Option Pool
 
-        public static class OptionPool
-        {
             private static readonly StorageContext currentContext = Storage.CurrentContext;
             public const string rentalFeeAccumulatorMapName = "rentalFee";
             public const string OptionPriceMapName = "optionPrice";
@@ -450,7 +448,6 @@ namespace FlamingoSwapPair
                     SafeTransfer(Token1, Runtime.ExecutingScriptHash, tenant, marginToken1);
                 }
             }
-        }
 
         #endregion
 
@@ -481,7 +478,7 @@ namespace FlamingoSwapPair
             var reserve1 = r.Reserve1;
 
             //转出量小于持有量
-            Assert(amount0Out < reserve0 - OptionPool.TotalRentedToken0() && amount1Out < reserve1 - OptionPool.TotalRentedToken0(), "Insufficient Liquidity");
+            Assert(amount0Out < reserve0 - TotalRentedToken0() && amount1Out < reserve1 - TotalRentedToken0(), "Insufficient Liquidity");
             //禁止转到token本身的地址
             Assert(toAddress != (UInt160)Token0 && toAddress != (UInt160)Token1 && toAddress != me, "INVALID_TO");
 
@@ -537,7 +534,7 @@ namespace FlamingoSwapPair
             Assert(toAddress.IsAddress(), "Invalid To-Address");
 
             var caller = Runtime.CallingScriptHash;
-            Assert(CheckIsRouter(caller), "Only Router Can Burn");
+            //Assert(CheckIsRouter(caller), "Only Router Can Burn");
             var me = Runtime.ExecutingScriptHash;
             var r = ReservePair;
 
@@ -585,7 +582,7 @@ namespace FlamingoSwapPair
             Assert(toAddress.IsAddress(), "Invalid To-Address");
 
             var caller = Runtime.CallingScriptHash; //msg.sender
-            Assert(CheckIsRouter(caller), "Only Router Can Mint");
+            //Assert(CheckIsRouter(caller), "Only Router Can Mint");
 
             var me = Runtime.ExecutingScriptHash; //address(this)
 
