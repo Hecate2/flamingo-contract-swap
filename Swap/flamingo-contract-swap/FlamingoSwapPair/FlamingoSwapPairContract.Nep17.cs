@@ -26,7 +26,7 @@ namespace FlamingoSwapPair
             var me = Runtime.ExecutingScriptHash;
             if (to == me)
             {
-                Assert(CheckIsRouter(Runtime.CallingScriptHash), "Not Allowed To Transfer");
+                //Assert(CheckIsRouter(Runtime.CallingScriptHash), "Not Allowed To Transfer");
             }
             Assert(AssetStorage.Get(from) >= amount, "Insufficient balance.");
             if (from == to) return true;

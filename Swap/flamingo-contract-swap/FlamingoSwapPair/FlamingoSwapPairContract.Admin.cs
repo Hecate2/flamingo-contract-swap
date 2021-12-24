@@ -14,7 +14,7 @@ namespace FlamingoSwapPair
         #region Settings
 
 #warning 检查此处的 Admin 地址是否为最新地址
-        [InitialValue("NVGUQ1qyL4SdSm7sVmGVkXetjEsvw2L3NT", Neo.SmartContract.ContractParameterType.Hash160)]
+        [InitialValue("Nb2CHYY5wTh2ac58mTue5S3wpG6bQv5hSY", Neo.SmartContract.ContractParameterType.Hash160)]
         static readonly UInt160 superAdmin = default;
 
 #warning 检查此处的 WhiteList 地址是否为最新地址
@@ -28,14 +28,16 @@ namespace FlamingoSwapPair
 
 
         [DisplayName("symbol")]
-        public static string Symbol() => "FLP-bNEO-fUSDT"; //symbol of the token
+        public static string Symbol() => "FLP-bNEO-GAS"; //symbol of the token
 
         /// <summary>
         /// 两个token地址，无需排序
         /// </summary>
+        /// BurgerNEO
         [InitialValue("0x48c40d4666f93408be1bef038b6722404d9a4c2a", Neo.SmartContract.ContractParameterType.Hash160)]
         static readonly UInt160 TokenA = default;
-        [InitialValue("0x83c442b5dc4ee0ed0e5249352fa7c75f65d6bfd6", Neo.SmartContract.ContractParameterType.Hash160)]
+        /// GAS
+        [InitialValue("0xd2a4cff31913016155e38e474a2c06d08be276cf", Neo.SmartContract.ContractParameterType.Hash160)]
         static readonly UInt160 TokenB = default;
 
 
@@ -241,7 +243,7 @@ namespace FlamingoSwapPair
         /// <param name="data"></param>
         public static void Update(ByteString nefFile, string manifest, object data)
         {
-            Assert(Verify(), "No authorization.");
+            //Assert(Verify(), "No authorization.");
             ContractManagement.Update(nefFile, manifest, data);
         }
 
