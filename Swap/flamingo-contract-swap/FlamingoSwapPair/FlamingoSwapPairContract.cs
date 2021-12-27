@@ -186,7 +186,8 @@ namespace FlamingoSwapPair
                     tenantRentedValue1 = TenantRentedToken1(tenant);
                     sumLiquidity += (tenantRentedValue0 * tenantRentedValue1 * 4294967296).Sqrt();  //4294967296 == 65536 ** 2
                 }
-                return sumLiquidity * 1000 / (65536 * TotalRentedLiquidity());
+                var r = ReservePair;
+                return sumLiquidity * 1000 / (65536 * (r.Reserve0 * r.Reserve1).Sqrt());
             }
 
             public static BigInteger OptionPrice(bool getUpperBound = false)
@@ -304,6 +305,7 @@ namespace FlamingoSwapPair
                     returnedValue = rentToken0;
                 }
                 else return 0;
+                Assert(TotalRentedToken0() + rentToken0 <= reserve0 && TotalRentedToken1() + rentToken1 <= reserve1, "No enough reserve");
                 BigInteger willHaveMargin0 = TenantMarginToken0(tenant) + marginToken0;
                 BigInteger willHaveMargin1 = TenantMarginToken1(tenant) + marginToken1;
                 BigInteger willRentToken0 = TenantRentedToken0(tenant) + rentToken0;
