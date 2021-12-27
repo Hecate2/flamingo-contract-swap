@@ -21,7 +21,7 @@ namespace FlamingoSwapPair
         /// <summary>
         /// WhiteList 合约地址
         /// </summary>
-        [InitialValue("0x06f12a6aa2b5689ce97f16979b179fb3e31d63d7", Neo.SmartContract.ContractParameterType.Hash160)]
+        [InitialValue("0xc4b74578540abd0197391867dd18d60762a4d7bd", Neo.SmartContract.ContractParameterType.Hash160)]
         static readonly UInt160 WhiteListContract = default;
 
         #region TokenAB

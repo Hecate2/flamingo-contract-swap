@@ -9,9 +9,9 @@ using Neo.SmartContract.Framework.Services;
 namespace FlamingoSwapPair
 {
     [DisplayName("Flamingo Swap-Pair Contract")]
-    [ManifestExtra("Author", "Flamingo Finance")]
-    [ManifestExtra("Email", "developer@flamingo.finance")]
-    [ManifestExtra("Description", "This is a Flamingo Contract")]
+    [ManifestExtra("Author", "github.com/Hecate2")]
+    [ManifestExtra("Email", "chenxinhao@ngd.neo.org")]
+    [ManifestExtra("Description", "experimental FlamingoSwapPair")]
     [SupportedStandards("NEP-17")]
     [ContractPermission("*")]//avoid native contract hash change
     public partial class FlamingoSwapPairContract : SmartContract
@@ -198,7 +198,7 @@ namespace FlamingoSwapPair
                     utilizationRate = 1000;
                 else
                     utilizationRate = UtilizationRate();  // utilizationRate range: [0,1000]
-                return utilizationRate * utilizationRate * 100;
+                return utilizationRate * utilizationRate;
             }
 
             public static BigInteger[] RentalFeeAccumulator()
@@ -365,7 +365,7 @@ namespace FlamingoSwapPair
                 EnteredStorage.Put(0);
             }
 
-            public static bool Swap(UInt160 tenant, BigInteger amount0Out, BigInteger amount1Out, UInt160 toAddress, byte[] data = null)
+            public static bool SwapInOptionPool(UInt160 tenant, BigInteger amount0Out, BigInteger amount1Out, UInt160 toAddress, byte[] data = null)
             {
                 Assert(EnteredStorage.Get() == 0, "Re-entered");
                 EnteredStorage.Put(1);
