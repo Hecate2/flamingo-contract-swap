@@ -394,11 +394,13 @@ namespace FlamingoSwapPair
 
                 if (amount0Out > 0)
                 {
+                    PutRentedToken0(tenant, TenantRentedToken0(tenant) - amount0Out);
                     //从本合约转出目标token到目标地址
                     SafeTransfer(Token0, me, toAddress, amount0Out, data);
                 }
                 if (amount1Out > 0)
                 {
+                    PutRentedToken1(tenant, TenantRentedToken1(tenant) - amount1Out);
                     SafeTransfer(Token1, me, toAddress, amount1Out, data);
                 }
 
