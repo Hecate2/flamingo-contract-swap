@@ -199,7 +199,7 @@ namespace FlamingoSwapPair
                     utilizationRate = 1000;
                 else
                     utilizationRate = UtilizationRate();  // utilizationRate range: [0,1000]
-                return utilizationRate * utilizationRate;
+                return utilizationRate * utilizationRate / 1000;
             }
 
             public static BigInteger[] RentalFeeAccumulator()
@@ -372,7 +372,7 @@ namespace FlamingoSwapPair
                 Assert(EnteredStorage.Get() == 0, "Re-entered");
                 EnteredStorage.Put(1);
 
-                if (!SettleTenantRentalFee(tenant)) return true;
+                if (!SettleTenantRentalFee(tenant)) return false;
 
                 Assert(toAddress.IsAddress(), "Invalid To-Address");
                 var caller = Runtime.CallingScriptHash;
