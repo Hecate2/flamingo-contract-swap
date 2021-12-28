@@ -147,22 +147,22 @@ namespace FlamingoSwapPair
             private static void PutRentedToken0(UInt160 tenant, BigInteger value)
             {
                 // update the total rented amount and the user's rented amount
-                Storage.Put(currentContext, rentedToken0MapName, TotalRentedToken0() + value - TenantRentedToken0(tenant));
+                Storage.Put(currentContext, totalRentedToken0MapName, TotalRentedToken0() + value - TenantRentedToken0(tenant));
                 if (value > 0)
-                    new StorageMap(currentContext, totalRentedToken0MapName).Put(tenant, value);
+                    new StorageMap(currentContext, rentedToken0MapName).Put(tenant, value);
                 else
-                    new StorageMap(currentContext, totalRentedToken0MapName).Delete(tenant);
+                    new StorageMap(currentContext, rentedToken0MapName).Delete(tenant);
             }
             public static BigInteger TenantRentedToken1(UInt160 tenant) => (BigInteger)new StorageMap(currentContext, rentedToken1MapName).Get(tenant);
             public static BigInteger TotalRentedToken1() => (BigInteger)Storage.Get(currentContext, totalRentedToken1MapName);
             private static void PutRentedToken1(UInt160 tenant, BigInteger value)
             {
                 // update the total rented amount and the user's rented amount
-                Storage.Put(currentContext, rentedToken1MapName, TotalRentedToken1() + value - TenantRentedToken1(tenant));
+                Storage.Put(currentContext, totalRentedToken1MapName, TotalRentedToken1() + value - TenantRentedToken1(tenant));
                 if (value > 0)
-                    new StorageMap(currentContext, totalRentedToken1MapName).Put(tenant, value);
+                    new StorageMap(currentContext, rentedToken1MapName).Put(tenant, value);
                 else
-                    new StorageMap(currentContext, totalRentedToken0MapName).Delete(tenant);
+                    new StorageMap(currentContext, rentedToken1MapName).Delete(tenant);
             }
 
             public static BigInteger TenantRentedLiquidity(UInt160 tenant) => (TenantRentedToken0(tenant) * TenantRentedToken1(tenant)).Sqrt();
@@ -194,6 +194,7 @@ namespace FlamingoSwapPair
             {
                 // GAS (1e8) cost per second
                 // TODO: design a good function
+                // return 0;  // for test
                 BigInteger utilizationRate;
                 if (getUpperBound)
                     utilizationRate = 1000;
