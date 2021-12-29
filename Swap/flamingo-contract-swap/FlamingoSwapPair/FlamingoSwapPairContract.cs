@@ -134,7 +134,7 @@ namespace FlamingoSwapPair
             public const string rentalFeeAccumulatorMapName = "rentalFee";
             public const string RentalPriceMapName = "rentalPrice";
             public const string RentalPriceAccumulationMapName = "rentalPriceAccumulation";
-            public const string TenantPriceAccumulationMapName = "tenantPriceAccumulation";
+            public const string TenantPriceAccumulationMapName = "tenantPriceAccumulation";  // tenant has paid fees lower than this accumulation
             public const string RentalPriceUpdateTimeMapName = "rentalPriceUpdateTime";
             public const string rentedToken0MapName = "rent0";
             public const string totalRentedToken0MapName = "totalRent0";
@@ -205,11 +205,11 @@ namespace FlamingoSwapPair
 
             public static BigInteger[] RentalFeeAccumulator()
             {
-                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
-                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
-                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
+                BigInteger previousRentalPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
+                BigInteger previousRentalPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
+                BigInteger previousRentalPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
                 BigInteger currentTime = Runtime.Time;
-                return new BigInteger[] {currentTime, previousOptionPriceAccumulation + previousOptionPrice * (currentTime - previousOptionPriceUpdatedTime) };
+                return new BigInteger[] {currentTime, previousRentalPriceAccumulation + previousRentalPrice * (currentTime - previousRentalPriceUpdatedTime) };
             }
 
             private static bool SettleTenantRentalFee(UInt160 tenant)
@@ -219,22 +219,21 @@ namespace FlamingoSwapPair
                 // calculate how much rental fee the tenant should pay since the tenant's last settlement
                 // update tenantPriceAccumulationMap, deduce tenant's fee and return true if the tenant's margin is enough to pay the rental fee
                 // force liquidation and return false if the tenant's margin is not enough to pay the rental fee
-                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
-                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
-                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
+                BigInteger previousRentalPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
+                BigInteger previousRentalPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
+                BigInteger previousRentalPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
                 BigInteger currentTime = Runtime.Time;
 
-                BigInteger newPriceAccumulation = previousOptionPriceAccumulation + previousOptionPrice * (currentTime - previousOptionPriceUpdatedTime);
+                BigInteger newPriceAccumulation = previousRentalPriceAccumulation + previousRentalPrice * (currentTime - previousRentalPriceUpdatedTime) / 1000;
 
                 StorageMap tenantPriceAccumulationMap = new(currentContext, TenantPriceAccumulationMapName);
                 BigInteger tenantPreviousPriceAccumulation = (BigInteger)tenantPriceAccumulationMap.Get(tenant);
-                BigInteger tenantRentedLiquidity = TenantRentedLiquidity(tenant);
-                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * tenantRentedLiquidity;
+                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * TenantRentedLiquidity(tenant);
 
                 BigInteger tenantMarginToken0 = TenantMarginToken0(tenant);
                 BigInteger tenantMarginToken1 = TenantMarginToken1(tenant);
                 BigInteger tenantTotalMargin = (tenantMarginToken0 * tenantMarginToken1).Sqrt();
-                if (tenantShouldPay + tenantRentedLiquidity < tenantTotalMargin)
+                if (tenantShouldPay < tenantTotalMargin)
                 {
                     // normal payment
                     tenantPriceAccumulationMap.Put(tenant, newPriceAccumulation);
@@ -251,7 +250,7 @@ namespace FlamingoSwapPair
                     PutRentedToken0(tenant, 0);
                     PutRentedToken1(tenant, 0);
 
-                    // Storage.Put(currentContext, OptionPriceMapName, OptionPrice());  // do this after changing tenant's rented value
+                    // Storage.Put(currentContext, RentalPriceMapName, RentalPrice());  // do this after changing tenant's rented value
                     Storage.Put(currentContext, RentalPriceAccumulationMapName, newPriceAccumulation);
                     Storage.Put(currentContext, RentalPriceUpdateTimeMapName, currentTime);
 
@@ -340,10 +339,12 @@ namespace FlamingoSwapPair
 
                 EnteredStorage.Put(0);
             }
-            public static void WithdrawMargin(UInt160 tenant)
+            public static bool WithdrawMargin(UInt160 tenant)
             {
                 Assert(EnteredStorage.Get() == 0, "Re-entered");
                 EnteredStorage.Put(1);
+                
+                bool returnedValue = false;
 
                 if (SettleTenantRentalFee(tenant))
                 {
@@ -356,6 +357,7 @@ namespace FlamingoSwapPair
                     PutRentedToken1(tenant, 0);
                     SafeTransfer(Token0, Runtime.ExecutingScriptHash, tenant, currentMargin0);
                     SafeTransfer(Token1, Runtime.ExecutingScriptHash, tenant, currentMargin1);
+                    returnedValue = true;
                 }
                 else
                 {
@@ -366,6 +368,7 @@ namespace FlamingoSwapPair
                 Storage.Put(currentContext, RentalPriceMapName, RentalPrice());
 
                 EnteredStorage.Put(0);
+                return returnedValue;
             }
 
             public static bool SwapInOptionPool(UInt160 tenant, BigInteger amount0Out, BigInteger amount1Out, UInt160 toAddress, byte[] data = null)
