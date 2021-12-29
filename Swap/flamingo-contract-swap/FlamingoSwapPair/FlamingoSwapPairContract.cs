@@ -132,10 +132,10 @@ namespace FlamingoSwapPair
 
             private static readonly StorageContext currentContext = Storage.CurrentContext;
             public const string rentalFeeAccumulatorMapName = "rentalFee";
-            public const string OptionPriceMapName = "optionPrice";
-            public const string OptionPriceAccumulationMapName = "optionPriceAccumulation";
+            public const string RentalPriceMapName = "rentalPrice";
+            public const string RentalPriceAccumulationMapName = "rentalPriceAccumulation";
             public const string TenantPriceAccumulationMapName = "tenantPriceAccumulation";
-            public const string OptionPriceUpdateTimeMapName = "optionPriceUpdateTime";
+            public const string RentalPriceUpdateTimeMapName = "rentalPriceUpdateTime";
             public const string rentedToken0MapName = "rent0";
             public const string totalRentedToken0MapName = "totalRent0";
             public const string marginToken0MapName = "margin0";
@@ -190,7 +190,7 @@ namespace FlamingoSwapPair
                 return sumLiquidity * 1000 / (65536 * (r.Reserve0 * r.Reserve1).Sqrt());
             }
 
-            public static BigInteger OptionPrice(bool getUpperBound = false)
+            public static BigInteger RentalPrice(bool getUpperBound = false)
             {
                 // GAS (1e8) cost per second
                 // TODO: design a good function
@@ -200,14 +200,14 @@ namespace FlamingoSwapPair
                     utilizationRate = 1000;
                 else
                     utilizationRate = UtilizationRate();  // utilizationRate range: [0,1000]
-                return utilizationRate * utilizationRate / 1000;
+                return utilizationRate * utilizationRate;
             }
 
             public static BigInteger[] RentalFeeAccumulator()
             {
-                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, OptionPriceMapName);
-                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, OptionPriceAccumulationMapName);
-                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, OptionPriceUpdateTimeMapName);
+                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
+                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
+                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
                 BigInteger currentTime = Runtime.Time;
                 return new BigInteger[] {currentTime, previousOptionPriceAccumulation + previousOptionPrice * (currentTime - previousOptionPriceUpdatedTime) };
             }
@@ -219,9 +219,9 @@ namespace FlamingoSwapPair
                 // calculate how much rental fee the tenant should pay since the tenant's last settlement
                 // update tenantPriceAccumulationMap, deduce tenant's fee and return true if the tenant's margin is enough to pay the rental fee
                 // force liquidation and return false if the tenant's margin is not enough to pay the rental fee
-                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, OptionPriceMapName);
-                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, OptionPriceAccumulationMapName);
-                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, OptionPriceUpdateTimeMapName);
+                BigInteger previousOptionPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
+                BigInteger previousOptionPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
+                BigInteger previousOptionPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
                 BigInteger currentTime = Runtime.Time;
 
                 BigInteger newPriceAccumulation = previousOptionPriceAccumulation + previousOptionPrice * (currentTime - previousOptionPriceUpdatedTime);
@@ -252,8 +252,8 @@ namespace FlamingoSwapPair
                     PutRentedToken1(tenant, 0);
 
                     // Storage.Put(currentContext, OptionPriceMapName, OptionPrice());  // do this after changing tenant's rented value
-                    Storage.Put(currentContext, OptionPriceAccumulationMapName, newPriceAccumulation);
-                    Storage.Put(currentContext, OptionPriceUpdateTimeMapName, currentTime);
+                    Storage.Put(currentContext, RentalPriceAccumulationMapName, newPriceAccumulation);
+                    Storage.Put(currentContext, RentalPriceUpdateTimeMapName, currentTime);
 
                     SafeTransfer(Token0, Runtime.ExecutingScriptHash, tenant, tenantMarginToken0);
                     SafeTransfer(Token1, Runtime.ExecutingScriptHash, tenant, tenantMarginToken1);
@@ -320,7 +320,7 @@ namespace FlamingoSwapPair
                 PutTenantMarginToken1(tenant, willHaveMargin1);
                 PutRentedToken0(tenant, willRentToken0);
                 PutRentedToken1(tenant, willRentToken1);
-                Storage.Put(currentContext, OptionPriceMapName, OptionPrice());
+                Storage.Put(currentContext, RentalPriceMapName, RentalPrice());
 
                 EnteredStorage.Put(0);
                 return returnedValue;
@@ -363,7 +363,7 @@ namespace FlamingoSwapPair
                     // TODO: give the caller some rewards...
                 }
 
-                Storage.Put(currentContext, OptionPriceMapName, OptionPrice());
+                Storage.Put(currentContext, RentalPriceMapName, RentalPrice());
 
                 EnteredStorage.Put(0);
             }
