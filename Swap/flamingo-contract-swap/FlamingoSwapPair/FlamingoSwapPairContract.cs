@@ -373,42 +373,64 @@ namespace FlamingoSwapPair
                 return returnedValue;
             }
 
-            public static bool SwapInOptionPool(UInt160 tenant, BigInteger amount0Out, BigInteger amount1Out, UInt160 toAddress, byte[] data = null)
+            public static BigInteger GetAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut)
+            {
+                //    Assert(amountIn > 0, "amountIn should be positive number");
+                //    Assert(reserveIn > 0 && reserveOut > 0, "reserve should be positive number");
+                Assert(amountIn > 0 && reserveIn > 0 && reserveOut > 0, "AmountIn Must > 0");
+
+                var amountInWithFee = amountIn * 997;
+                var numerator = amountInWithFee * reserveOut;
+                var denominator = reserveIn * 1000 + amountInWithFee;
+                var amountOut = numerator / denominator;
+                return amountOut;
+            }
+
+            public static bool SwapInOptionPool(UInt160 tenant, UInt160 tokenIn, UInt160 tokenOut, BigInteger amountIn, BigInteger minAmountOut, UInt160 toAddress, BigInteger deadLine, byte[] data = null)
             {
                 Assert(EnteredStorage.Get() == 0, "Re-entered");
                 EnteredStorage.Put(1);
-
-                if (!SettleTenantRentalFee(tenant)) return false;
-
-                Assert(toAddress.IsAddress(), "Invalid To-Address");
-                var caller = Runtime.CallingScriptHash;
+                Assert((BigInteger)Runtime.Time <= deadLine, "Exceeded the deadline");
 
                 var me = Runtime.ExecutingScriptHash;
+                SafeTransfer(tokenIn, tenant, me, amountIn);
 
-                Assert(amount0Out >= 0 && amount1Out >= 0, "Invalid AmountOut");
-                Assert(amount0Out > 0 || amount1Out > 0, "Invalid AmountOut");
-
-                var r = ReservePair;
-                var reserve0 = TenantRentedToken0(tenant);
-                var reserve1 = TenantRentedToken1(tenant);
-
-                //转出量小于持有量
-                Assert(amount0Out < reserve0 && amount1Out < reserve1, "Insufficient Liquidity");
+                Assert(toAddress.IsAddress(), "Invalid To-Address");
                 //禁止转到token本身的地址
                 Assert(toAddress != Token0 && toAddress != Token1 && toAddress != me, "INVALID_TO");
 
-                if (amount0Out > 0)
+                Assert(SettleTenantRentalFee(tenant), "Forced liquidation");
+                var r = ReservePair;
+                var reserve0 = TenantRentedToken0(tenant);
+                var reserve1 = TenantRentedToken1(tenant);
+                BigInteger amountOut;
+                BigInteger amount0Out = 0, amount1Out = 0;
+                if (tokenIn == TokenA && tokenOut == TokenB)
                 {
-                    PutRentedToken0(tenant, TenantRentedToken0(tenant) - amount0Out);
+                    amountOut = GetAmountOut(amountIn, reserve0, reserve1);
+                    Assert(amountOut >= minAmountOut, "No enough amountOut");
+                    Assert(amountOut < reserve1, "Insufficient Liquidity");
+                    PutRentedToken0(tenant, TenantRentedToken0(tenant) + amountIn);
+                    PutRentedToken1(tenant, TenantRentedToken1(tenant) - amountOut);
+                    amount0Out = 0;  amount1Out = amountOut;
                     //从本合约转出目标token到目标地址
-                    SafeTransfer(Token0, me, toAddress, amount0Out, data);
+                    SafeTransfer(TokenB, me, toAddress, amountOut, data);
                 }
-                if (amount1Out > 0)
+                else if (tokenIn == TokenB && tokenOut == TokenA)
                 {
-                    PutRentedToken1(tenant, TenantRentedToken1(tenant) - amount1Out);
-                    SafeTransfer(Token1, me, toAddress, amount1Out, data);
+                    amountOut = GetAmountOut(amountIn, reserve1, reserve0);
+                    Assert(amountOut >= minAmountOut, "No enough amountOut");
+                    Assert(amountOut < reserve0, "Insufficient Liquidity");
+                    PutRentedToken1(tenant, TenantRentedToken1(tenant) + amountIn);
+                    PutRentedToken0(tenant, TenantRentedToken0(tenant) - amountOut);
+                    amount0Out = amountOut; amount1Out = 0;
+                    //从本合约转出目标token到目标地址
+                    SafeTransfer(TokenA, me, toAddress, amountOut, data);
                 }
+                else
+                    Assert(false, "Invalid Token Addr");
 
+                var caller = Runtime.CallingScriptHash;
 
                 BigInteger balance0 = DynamicBalanceOf(Token0, me);
                 BigInteger balance1 = DynamicBalanceOf(Token1, me);
