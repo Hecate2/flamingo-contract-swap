@@ -131,6 +131,7 @@ namespace FlamingoSwapPair
         #region Option Pool
 
             private static readonly StorageContext currentContext = Storage.CurrentContext;
+            public const ulong price_divisor = (ulong)1_0000_0000;
             public const string rentalFeeAccumulatorMapName = "rentalFee";
             public const string RentalPriceMapName = "rentalPrice";
             public const string RentalPriceAccumulationMapName = "rentalPriceAccumulation";
@@ -224,11 +225,12 @@ namespace FlamingoSwapPair
                 BigInteger previousRentalPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
                 BigInteger currentTime = Runtime.Time;
 
-                BigInteger newPriceAccumulation = previousRentalPriceAccumulation + previousRentalPrice * (currentTime - previousRentalPriceUpdatedTime) / 1000;
+                BigInteger newPriceAccumulation = previousRentalPriceAccumulation + previousRentalPrice * (currentTime - previousRentalPriceUpdatedTime);
 
                 StorageMap tenantPriceAccumulationMap = new(currentContext, TenantPriceAccumulationMapName);
                 BigInteger tenantPreviousPriceAccumulation = (BigInteger)tenantPriceAccumulationMap.Get(tenant);
-                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * TenantRentedLiquidity(tenant);
+                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * TenantRentedLiquidity(tenant) / (price_divisor * 1000);
+                // millisecond to second by /1000; fee == 1e-8 * rented_amount (integer) * utilization_rate[0-1000] per second
 
                 BigInteger tenantMarginToken0 = TenantMarginToken0(tenant);
                 BigInteger tenantMarginToken1 = TenantMarginToken1(tenant);
