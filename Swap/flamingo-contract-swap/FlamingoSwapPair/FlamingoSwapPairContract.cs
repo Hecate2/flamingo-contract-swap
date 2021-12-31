@@ -220,6 +220,8 @@ namespace FlamingoSwapPair
                 // calculate how much rental fee the tenant should pay since the tenant's last settlement
                 // update tenantPriceAccumulationMap, deduce tenant's fee and return true if the tenant's margin is enough to pay the rental fee
                 // force liquidation and return false if the tenant's margin is not enough to pay the rental fee
+                BigInteger tenantRentedLiquidity = TenantRentedLiquidity(tenant);
+                if (tenantRentedLiquidity == 0) return true;
                 BigInteger previousRentalPrice = (BigInteger)Storage.Get(currentContext, RentalPriceMapName);
                 BigInteger previousRentalPriceAccumulation = (BigInteger)Storage.Get(currentContext, RentalPriceAccumulationMapName);
                 BigInteger previousRentalPriceUpdatedTime = (BigInteger)Storage.Get(currentContext, RentalPriceUpdateTimeMapName);
@@ -229,7 +231,7 @@ namespace FlamingoSwapPair
 
                 StorageMap tenantPriceAccumulationMap = new(currentContext, TenantPriceAccumulationMapName);
                 BigInteger tenantPreviousPriceAccumulation = (BigInteger)tenantPriceAccumulationMap.Get(tenant);
-                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * TenantRentedLiquidity(tenant) / (price_divisor * 1000);
+                BigInteger tenantShouldPay = (newPriceAccumulation - tenantPreviousPriceAccumulation) * tenantRentedLiquidity / (price_divisor * 1000);
                 // millisecond to second by /1000; fee == 1e-8 * rented_amount (integer) * utilization_rate[0-1000] per second
 
                 BigInteger tenantMarginToken0 = TenantMarginToken0(tenant);
